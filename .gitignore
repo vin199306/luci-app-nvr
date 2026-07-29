@@ -2,3 +2,11 @@
 /build_dir/
 /staging_dir/
 *.ipk
+*.apk
+
+# 预编译的 Go 二进制（CI 中由 setup-go 生成，不提交）
+/nvr-core-bin
+
+# Go 本地编译产物
+/nvr-core/nvr-core
+/nvr-core/nvr-core-*

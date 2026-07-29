@@ -11,8 +11,8 @@ function index()
 end
 
 function nvr_status()
-	local nvrrecord = luci.sys.exec("ps -w | grep nvrrecord | grep -v grep | awk '{print$1}' 2>/dev/null ")
-	local pushpid   = luci.sys.exec("ps -w | grep 'f flv rtmp' | grep -v grep | awk '{print$1}' 2>/dev/null ")
+	local nvrrecord = luci.sys.exec("ps -w | grep 'nvr-core record' | grep -v grep | awk '{print$1}' 2>/dev/null ")
+	local pushpid   = luci.sys.exec("ps -w | grep 'nvr-core push' | grep -v grep | awk '{print$1}' 2>/dev/null ")
 
 	local e = {
 		nvrrecord = nvrrecord,

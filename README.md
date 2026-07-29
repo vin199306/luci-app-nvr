@@ -17,11 +17,12 @@ Luci App NVR 是一款运行在 OpenWrt/iStoreOS 路由器上的轻量级监控�
 ## 🌟 项目亮点
 
 * **云端自动构建**：基于 GitHub Actions 实现持续集成，确保每次代码推送均能生成环境一致的生产级安装包。
-* **双架构云端自动构建**：基于 GitHub Actions 实现，每次代码推送均会自动生产适配不同 OpenWrt 版本的安装包。
+* **多架构云端自动构建**：基于 GitHub Actions 实现，每次代码推送均会自动生产适配不同 OpenWrt 版本与不同 CPU 架构的安装包。
+* **零依赖录像引擎**：核心录像/推流功能由 Go 语言重写的 `nvr-core` 二进制提供，静态编译无外部依赖，**无需安装 ffmpeg**，开箱即用。
 * **跨代版本适配**：
-    * **经典版 (Stable)**：适配 OpenWrt 24.10.5 及更早版本，提供标准 `.ipk` 格式，采用 **GCC 13.3.0** 编译。
-    * **先行版 (Bleeding Edge)**：率先适配 OpenWrt **25.12-rc2**，提供最新的 **`.apk`** 格式，采用官方最新的 **GCC 14.3.0** 编译器。
-* **原生 x86_64 优化**：针对 64 位 x86 架构进行指令集优化，充分释放软路由硬件性能。
+    * **经典版 (Stable)**：适配 OpenWrt 24.10.5 及更早版本，提供标准 `.ipk` 格式。
+    * **先行版 (Bleeding Edge)**：率先适配 OpenWrt **25.12-rc2**，提供最新的 **`.apk`** 格式。
+* **多架构原生支持**：同时覆盖 **x86_64** 软路由与 **MT7981A (MediaTek Filogic 820, aarch64_cortex-a53)** ARM 路由器，云端用 Go 交叉编译对应架构静态二进制，确保在 MT7981A 设备上可直接安装运行。
 * **高级格式支持**：自动化工作流原生支持 `.tar.zst` 格式 SDK 的解压与构建。
 
 ---
@@ -55,9 +56,10 @@ Luci App NVR 是一款运行在 OpenWrt/iStoreOS 路由器上的轻量级监控�
 
 1. 点击网页顶部的 **[Actions]** 选项卡。
 2. 在列表中找到最近一次显示 **绿色对勾 ✅** 的任务并点击进入。
-3. 滚动到页面底部的 **Artifacts** 区域：
-    * **旧版/iStoreOS 用户**：下载 `luci-app-nvr-24.10.5`，解压得到 **`.ipk`** 文件。
-    * **新版 (25.12+) 用户**：下载 `luci-app-nvr-25.12.0-rc2`，解压得到 **`.apk`** 文件。
+3. 滚动到页面底部的 **Artifacts** 区域，按你的路由器 CPU 架构选择对应包：
+    * **x86_64 软路由**：下载 `luci-app-nvr-24.10.5-x86-64`（旧版/iStoreOS）或 `luci-app-nvr-25.12.0-rc2-x86-64`（新版 25.12+）。
+    * **MT7981A 等 ARM 路由器（MediaTek Filogic）**：下载 `luci-app-nvr-24.10.5-mediatek-filogic`（旧版/iStoreOS）或 `luci-app-nvr-25.12.0-rc2-mediatek-filogic`（新版 25.12+）。
+    * 解压后分别得到 **`.ipk`**（旧版）或 **`.apk`**（新版）文件。
 
 **安装方式：**
 * **IPK 安装**：在路由器后台上传安装，或执行 `opkg install xxx.ipk`。
@@ -68,6 +70,7 @@ Luci App NVR 是一款运行在 OpenWrt/iStoreOS 路由器上的轻量级监控�
 ## 🛠 使用小贴士
 
 * **安装建议**：安装前请先点击“刷新列表”或运行 `opkg update`。
+* **无需 ffmpeg**：本插件内置 Go 语言编写的 `nvr-core` 录像引擎，静态编译零依赖，安装后即可录像/推流，无需额外安装 ffmpeg 或 ffmpeg-static。
 * **存储位置**：强烈建议在设置中将录像路径改为外挂硬盘的目录（如 `/mnt/sda1/nvr`），避免占满路由器系统空间。
 * **同步提醒**：开发者在修改代码后，请务必执行 `git pull origin main` 以保持本地与云端自动配置一致。
 

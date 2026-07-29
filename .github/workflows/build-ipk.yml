@@ -1,4 +1,4 @@
-name: Build Luci App NVR (Dual Version)
+name: Build Luci App NVR (Dual Version & Arch)
 
 on:
   workflow_dispatch:
@@ -7,22 +7,48 @@ on:
 
 jobs:
   build:
-    name: Build for OpenWrt ${{ matrix.version }}
+    name: OpenWrt ${{ matrix.version }} / ${{ matrix.arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - version: "24.10.5"
+            arch: "x86-64"
+            go_arch: "amd64"
             sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-sdk-24.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
             pkg_type: "ipk"
+          - version: "24.10.5"
+            arch: "mediatek-filogic"
+            go_arch: "arm64"
+            sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+            pkg_type: "ipk"
           - version: "25.12.0-rc2"
+            arch: "x86-64"
+            go_arch: "amd64"
             sdk_url: "https://archive.openwrt.org/releases/25.12.0-rc2/targets/x86/64/openwrt-sdk-25.12.0-rc2-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+            pkg_type: "apk"
+          - version: "25.12.0-rc2"
+            arch: "mediatek-filogic"
+            go_arch: "arm64"
+            sdk_url: "https://archive.openwrt.org/releases/25.12.0-rc2/targets/mediatek/filogic/openwrt-sdk-25.12.0-rc2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
             pkg_type: "apk"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Compile nvr-core (Go binary, static)
+        run: |
+          cd nvr-core
+          GOOS=linux GOARCH=${{ matrix.go_arch }} CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../nvr-core-bin .
+          cd ..
+          file nvr-core-bin
 
       - name: Initialization environment
         run: |
@@ -38,10 +64,11 @@ jobs:
           zstd -d sdk.tar.zst -o sdk.tar
           tar xf sdk.tar -C sdk_env --strip-components=1
           
-          # 2. 准备插件目录
+          # 2. 准备插件目录（含预编译的 Go 二进制 nvr-core-bin）
           PKG_DIR="sdk_env/package/luci-app-nvr"
           mkdir -p "$PKG_DIR"
           cp Makefile "$PKG_DIR/"
+          cp nvr-core-bin "$PKG_DIR/"
           [ -d "luasrc" ] && cp -r luasrc "$PKG_DIR/"
           [ -d "files" ] && cp -r files/* "$PKG_DIR/"
           [ -d "po" ] && cp -r po "$PKG_DIR/"
@@ -63,7 +90,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-nvr-${{ matrix.version }}
+          name: luci-app-nvr-${{ matrix.version }}-${{ matrix.arch }}
           # 自动根据版本抓取对应的 .ipk 或 .apk
           path: |
             sdk_env/bin/**/*.ipk

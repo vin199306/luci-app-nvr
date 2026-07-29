@@ -7,7 +7,7 @@ PKG_RELEASE:=1
 LUCI_TITLE:=LuCI Support for Network Video Recorder
 LUCI_DESCRIPTION:=A LuCI application for network video recording using IP cameras.
 LUCI_DEPENDS:=+luci-base +lsblk +coreutils-stat +luci-compat
-LUCI_PKGARCH:=all
+LUCI_PKGARCH:=$(ARCH)
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
@@ -24,9 +24,9 @@ define Package/luci-app-nvr/install
 	$(INSTALL_DATA) ./luasrc/model/cbi/nvr.lua $(1)/usr/lib/lua/luci/model/cbi/
 	$(INSTALL_DATA) ./luasrc/view/nvr_status.htm $(1)/usr/lib/lua/luci/view/
 
-	# 2. 安装系统运行文件 (从项目根部的 nvr 文件夹拷贝)
+	# 2. 安装 nvr-core 二进制（CI 中由 Go 交叉编译产生，静态链接无外部依赖）
 	$(INSTALL_DIR) $(1)/usr/nvr
-	$(CP) ./nvr/* $(1)/usr/nvr/
+	$(INSTALL_BIN) ./nvr-core-bin $(1)/usr/nvr/nvr-core
 
 	# 3. 安装配置文件
 	$(INSTALL_DIR) $(1)/etc/config

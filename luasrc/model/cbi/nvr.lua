@@ -178,16 +178,16 @@ s:tab("action", translate("Action"))
 
 recordaction=s:taboption("action", Button, "recoredaction", translate("One-click Record"))
 recordaction.rmempty = true
-recordaction.inputstyle = "apply"                
-function recordaction.write(self, section)                                                                        
-	luci.util.exec("/usr/nvr/nvrstart 2>&1 &")                                          
-end  
+recordaction.inputstyle = "apply"
+function recordaction.write(self, section)
+	luci.util.exec("/usr/nvr/nvr-core record 2>&1 &")
+end
 
 recordstop=s:taboption("action", Button, "recordstop", translate("One-click STOP Record"))
 recordstop.rmempty = true
 recordstop.inputstyle = "apply"
 function recordstop.write(self, section)
-	luci.util.exec("/usr/nvr/nvrstop 2>&1 & ")
+	luci.util.exec("kill -TERM $(ps -w | grep 'nvr-core record' | grep -v grep | awk '{print$1}') 2>&1 &")
 end
 
 pushaction=s:taboption("action", Button, "pushaction", translate("One-click Push stream"))
@@ -195,7 +195,7 @@ pushaction:depends( "do_push", "1" )
 pushaction.rmempty = true
 pushaction.inputstyle = "apply"
 function pushaction.write(self, section)
-	luci.util.exec("/usr/nvr/nvrpush >/dev/null 2>&1 &")
+	luci.util.exec("/usr/nvr/nvr-core push >/dev/null 2>&1 &")
 end
 
 pushstop = s:taboption("action", Button, "pushstop", translate("One-click STOP Push"))
@@ -203,7 +203,7 @@ pushstop:depends( "do_push", "1" )
 pushstop.rmempty = true
 pushstop.inputstyle = "apply"
 function pushstop.write(self, section)
-	luci.util.exec("kill -9 $(ps -w | grep 'f flv rtmp' | grep -v grep | awk '{print$1}' 2>&1 &)")
+	luci.util.exec("kill -TERM $(ps -w | grep 'nvr-core push' | grep -v grep | awk '{print$1}') 2>&1 &")
 end
 
 return m
