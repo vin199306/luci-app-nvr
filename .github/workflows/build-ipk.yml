@@ -1,4 +1,4 @@
-name: Build & Release Luci App NVR
+name: Build Luci App NVR (MT7981A)
 
 on:
   workflow_dispatch:
@@ -8,32 +8,14 @@ on:
 
 jobs:
   build:
-    name: OpenWrt ${{ matrix.version }} / ${{ matrix.arch }}
+    name: OpenWrt 24.10.5 / mediatek-filogic
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - version: "24.10.5"
-            arch: "x86-64"
-            go_arch: "amd64"
-            sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-sdk-24.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-            pkg_type: "ipk"
-          - version: "24.10.5"
-            arch: "mediatek-filogic"
-            go_arch: "arm64"
-            sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-            pkg_type: "ipk"
-          - version: "25.12.0-rc2"
-            arch: "x86-64"
-            go_arch: "amd64"
-            sdk_url: "https://archive.openwrt.org/releases/25.12.0-rc2/targets/x86/64/openwrt-sdk-25.12.0-rc2-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-            pkg_type: "apk"
-          - version: "25.12.0-rc2"
-            arch: "mediatek-filogic"
-            go_arch: "arm64"
-            sdk_url: "https://archive.openwrt.org/releases/25.12.0-rc2/targets/mediatek/filogic/openwrt-sdk-25.12.0-rc2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-            pkg_type: "apk"
+    env:
+      GO_ARCH: arm64
+      SDK_URL: "https://archive.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+      PKG_TYPE: ipk
+      VERSION: "24.10.5"
+      ARCH: "mediatek-filogic"
 
     steps:
       - name: Checkout
@@ -43,29 +25,40 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache-dependency-path: nvr-core/go.sum
 
       - name: Compile nvr-core (Go binary, static)
         run: |
           cd nvr-core
-          GOOS=linux GOARCH=${{ matrix.go_arch }} CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../nvr-core-bin .
+          GOOS=linux GOARCH=${GO_ARCH} CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../nvr-core-bin .
           cd ..
           file nvr-core-bin
+          ls -lh nvr-core-bin
+
+      - name: Cache OpenWrt SDK
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: sdk_env
+          key: sdk-${{ env.VERSION }}-${{ env.ARCH }}
 
       - name: Initialization environment
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip zstd
           sudo -E apt-get clean
 
-      - name: Compile Package
+      - name: Download and extract SDK
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
-          # 1. 下载对应版本的 SDK
-          wget -q "${{ matrix.sdk_url }}" -O sdk.tar.zst
+          wget -q "${SDK_URL}" -O sdk.tar.zst
           mkdir sdk_env
           zstd -d sdk.tar.zst -o sdk.tar
           tar xf sdk.tar -C sdk_env --strip-components=1
-          
-          # 2. 准备插件目录（含预编译的 Go 二进制 nvr-core-bin）
+
+      - name: Prepare package source
+        run: |
           PKG_DIR="sdk_env/package/luci-app-nvr"
           mkdir -p "$PKG_DIR"
           cp Makefile "$PKG_DIR/"
@@ -73,64 +66,53 @@ jobs:
           [ -d "luasrc" ] && cp -r luasrc "$PKG_DIR/"
           [ -d "files" ] && cp -r files/* "$PKG_DIR/"
           [ -d "po" ] && cp -r po "$PKG_DIR/"
-          
-          # 3. 激活配置
+
+      - name: Compile Package
+        run: |
           cd sdk_env
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # 仅安装 luci 依赖，跳过全量 feeds install 以加速
+          ./scripts/feeds update -a > /dev/null 2>&1
+          ./scripts/feeds install luci-base > /dev/null 2>&1 || true
           echo "CONFIG_PACKAGE_luci-app-nvr=m" >> .config
           make defconfig
-          
-          # 4. 执行编译
           make package/luci-app-nvr/compile V=s -j$(nproc)
-          
-          # 5. 诊断搜索
-          echo "==== 检查生成的 ${{ matrix.pkg_type }} 文件 ===="
-          find bin/ -name "*.${{ matrix.pkg_type }}"
 
-      - name: Collect and rename package
+      - name: Collect package
         run: |
           mkdir -p pkg-out
-          # 重命名为统一标准名，便于 Release 资产识别
-          find sdk_env/bin/ -name "*.${{ matrix.pkg_type }}" -type f \
-            -exec cp {} pkg-out/luci-app-nvr-${{ matrix.version }}-${{ matrix.arch }}.${{ matrix.pkg_type }} \;
+          find sdk_env/bin/ -name "*.${PKG_TYPE}" -type f \
+            -exec cp {} pkg-out/luci-app-nvr-${VERSION}-${ARCH}.${PKG_TYPE} \;
           echo "==== 最终产物 ===="
-          ls -la pkg-out/
+          ls -lh pkg-out/
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pkg-${{ matrix.version }}-${{ matrix.arch }}
+          name: luci-app-nvr-${{ env.VERSION }}-${{ env.ARCH }}
           path: pkg-out/*
           if-no-files-found: error
 
   release:
     name: Publish to GitHub Release
     needs: build
-    # 仅在 tag 推送或手动触发时发布；普通 push main 只做编译验证
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # 创建 Release / Tag 所需权限
+      contents: write
     steps:
-      - name: Download all artifacts
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
+          name: luci-app-nvr-24.10.5-mediatek-filogic
           path: assets
-          merge-multiple: true   # 所有架构产物合并到同一目录
-
-      - name: List release assets
-        run: ls -la assets/
 
       - name: Compute release tag & prerelease flag
         id: rel
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            # tag 触发：使用该 tag，正式发布
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            # 手动触发：生成 nightly 预发布 tag
             echo "tag=nightly-$(date -u +'%Y%m%d')-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
@@ -141,5 +123,5 @@ jobs:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ steps.rel.outputs.tag }}
           prerelease: ${{ steps.rel.outputs.prerelease }}
-          generate_release_notes: true   # 自动生成变更日志（基于 commit）
+          generate_release_notes: true
           files: assets/*
