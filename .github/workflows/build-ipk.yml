@@ -15,10 +15,25 @@ jobs:
       matrix:
         include:
           - version: "24.10.5"
+            arch: "x86-64"
+            go_arch: "amd64"
+            sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-sdk-24.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+            pkg_type: "ipk"
+          - version: "24.10.5"
             arch: "mediatek-filogic"
             go_arch: "arm64"
             sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
             pkg_type: "ipk"
+          - version: "25.12.0-rc2"
+            arch: "x86-64"
+            go_arch: "amd64"
+            sdk_url: "https://archive.openwrt.org/releases/25.12.0-rc2/targets/x86/64/openwrt-sdk-25.12.0-rc2-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+            pkg_type: "apk"
+          - version: "25.12.0-rc2"
+            arch: "mediatek-filogic"
+            go_arch: "arm64"
+            sdk_url: "https://archive.openwrt.org/releases/25.12.0-rc2/targets/mediatek/filogic/openwrt-sdk-25.12.0-rc2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+            pkg_type: "apk"
 
     steps:
       - name: Checkout
@@ -76,16 +91,16 @@ jobs:
       - name: Collect and rename package
         run: |
           mkdir -p pkg-out
-          # 重命名为简洁标准名
+          # 重命名为统一标准名，便于 Release 资产识别
           find sdk_env/bin/ -name "*.${{ matrix.pkg_type }}" -type f \
-            -exec cp {} pkg-out/luci-app-nvr.${{ matrix.pkg_type }} \;
+            -exec cp {} pkg-out/luci-app-nvr-${{ matrix.version }}-${{ matrix.arch }}.${{ matrix.pkg_type }} \;
           echo "==== 最终产物 ===="
           ls -la pkg-out/
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pkg
+          name: pkg-${{ matrix.version }}-${{ matrix.arch }}
           path: pkg-out/*
           if-no-files-found: error
 
