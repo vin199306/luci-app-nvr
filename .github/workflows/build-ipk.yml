@@ -91,11 +91,22 @@ jobs:
       - name: Collect and rename package
         run: |
           mkdir -p pkg-out
-          # 重命名为统一标准名，便于 Release 资产识别
-          find sdk_env/bin/ -name "*.${{ matrix.pkg_type }}" -type f \
+          echo "==== 所有 ${{ matrix.pkg_type }} 产物（含语言包，供诊断）===="
+          find sdk_env/bin/ -name "*.${{ matrix.pkg_type }}" -type f -exec ls -la {} \;
+          
+          # 只抓主包，排除 luci-i18n-* 语言包，避免语言包覆盖主包
+          find sdk_env/bin/ -name "luci-app-nvr*.${{ matrix.pkg_type }}" -type f \
+            ! -name "luci-i18n-*" \
             -exec cp {} pkg-out/luci-app-nvr-${{ matrix.version }}-${{ matrix.arch }}.${{ matrix.pkg_type }} \;
+          
           echo "==== 最终产物 ===="
           ls -la pkg-out/
+          # 校验产物大小，若 <100KB 说明二进制未打入，标记异常
+          SIZE=$(stat -c%s pkg-out/luci-app-nvr-${{ matrix.version }}-${{ matrix.arch }}.${{ matrix.pkg_type }} 2>/dev/null || echo 0)
+          echo "产物大小: ${SIZE} 字节"
+          if [ "${SIZE}" -lt 102400 ]; then
+            echo "::warning::产物仅 ${SIZE} 字节，疑似缺少 nvr-core 二进制，请检查 Makefile install 段"
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
