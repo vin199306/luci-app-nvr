@@ -1,4 +1,4 @@
-name: Build Luci App NVR (MT7981A)
+name: Build & Release Luci App NVR
 
 on:
   workflow_dispatch:
@@ -8,14 +8,17 @@ on:
 
 jobs:
   build:
-    name: OpenWrt 24.10.5 / mediatek-filogic
+    name: OpenWrt ${{ matrix.version }} / ${{ matrix.arch }}
     runs-on: ubuntu-latest
-    env:
-      GO_ARCH: arm64
-      SDK_URL: "https://archive.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-      PKG_TYPE: ipk
-      VERSION: "24.10.5"
-      ARCH: "mediatek-filogic"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: "24.10.5"
+            arch: "mediatek-filogic"
+            go_arch: "arm64"
+            sdk_url: "https://archive.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+            pkg_type: "ipk"
 
     steps:
       - name: Checkout
@@ -25,40 +28,29 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-          cache-dependency-path: nvr-core/go.sum
 
       - name: Compile nvr-core (Go binary, static)
         run: |
           cd nvr-core
-          GOOS=linux GOARCH=${GO_ARCH} CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../nvr-core-bin .
+          GOOS=linux GOARCH=${{ matrix.go_arch }} CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../nvr-core-bin .
           cd ..
           file nvr-core-bin
-          ls -lh nvr-core-bin
-
-      - name: Cache OpenWrt SDK
-        id: cache-sdk
-        uses: actions/cache@v4
-        with:
-          path: sdk_env
-          key: sdk-${{ env.VERSION }}-${{ env.ARCH }}
 
       - name: Initialization environment
-        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip zstd
           sudo -E apt-get clean
 
-      - name: Download and extract SDK
-        if: steps.cache-sdk.outputs.cache-hit != 'true'
+      - name: Compile Package
         run: |
-          wget -q "${SDK_URL}" -O sdk.tar.zst
+          # 1. 下载对应版本的 SDK
+          wget -q "${{ matrix.sdk_url }}" -O sdk.tar.zst
           mkdir sdk_env
           zstd -d sdk.tar.zst -o sdk.tar
           tar xf sdk.tar -C sdk_env --strip-components=1
-
-      - name: Prepare package source
-        run: |
+          
+          # 2. 准备插件目录（含预编译的 Go 二进制 nvr-core-bin）
           PKG_DIR="sdk_env/package/luci-app-nvr"
           mkdir -p "$PKG_DIR"
           cp Makefile "$PKG_DIR/"
@@ -66,63 +58,64 @@ jobs:
           [ -d "luasrc" ] && cp -r luasrc "$PKG_DIR/"
           [ -d "files" ] && cp -r files/* "$PKG_DIR/"
           [ -d "po" ] && cp -r po "$PKG_DIR/"
-
-      - name: Compile Package
-        run: |
+          
+          # 3. 激活配置
           cd sdk_env
-          # 显示 feeds 源配置，便于诊断
-          echo "==== feeds.conf ===="
-          cat feeds.conf 2>/dev/null || cat feeds.conf.default 2>/dev/null || echo "(无 feeds.conf)"
-          # 更新并安装 luci 依赖（不吞掉输出，便于诊断）
           ./scripts/feeds update -a
-          ./scripts/feeds install luci-base luci-compat
+          ./scripts/feeds install -a
           echo "CONFIG_PACKAGE_luci-app-nvr=m" >> .config
           make defconfig
+          
+          # 4. 执行编译
           make package/luci-app-nvr/compile V=s -j$(nproc)
+          
+          # 5. 诊断搜索
+          echo "==== 检查生成的 ${{ matrix.pkg_type }} 文件 ===="
+          find bin/ -name "*.${{ matrix.pkg_type }}"
 
-      - name: Collect package
+      - name: Collect and rename package
         run: |
           mkdir -p pkg-out
-          echo "==== 所有 ipk 产物 ===="
-          find sdk_env/bin/ -name "*.ipk" -type f -exec ls -lh {} \;
-          # 只取主包（luci-app-nvr_*），排除 i18n 语言包，避免小语言包覆盖主包
-          MAIN_IPK=$(find sdk_env/bin/ -name "luci-app-nvr_*.ipk" -not -name "luci-i18n-*" -type f | head -1)
-          if [ -z "$MAIN_IPK" ]; then
-            echo "错误：未找到主包 ipk"
-            exit 1
-          fi
-          echo "主包: $MAIN_IPK"
-          cp "$MAIN_IPK" pkg-out/luci-app-nvr-${VERSION}-${ARCH}.${PKG_TYPE}
+          # 重命名为简洁标准名
+          find sdk_env/bin/ -name "*.${{ matrix.pkg_type }}" -type f \
+            -exec cp {} pkg-out/luci-app-nvr.${{ matrix.pkg_type }} \;
           echo "==== 最终产物 ===="
-          ls -lh pkg-out/
+          ls -la pkg-out/
 
-      - name: Upload Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-nvr-${{ env.VERSION }}-${{ env.ARCH }}
+          name: pkg
           path: pkg-out/*
           if-no-files-found: error
 
   release:
     name: Publish to GitHub Release
     needs: build
+    # 仅在 tag 推送或手动触发时发布；普通 push main 只做编译验证
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # 创建 Release / Tag 所需权限
     steps:
-      - name: Download artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: luci-app-nvr-24.10.5-mediatek-filogic
           path: assets
+          merge-multiple: true   # 所有架构产物合并到同一目录
+
+      - name: List release assets
+        run: ls -la assets/
 
       - name: Compute release tag & prerelease flag
         id: rel
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            # tag 触发：使用该 tag，正式发布
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
+            # 手动触发：生成 nightly 预发布 tag
             echo "tag=nightly-$(date -u +'%Y%m%d')-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
@@ -133,5 +126,5 @@ jobs:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ steps.rel.outputs.tag }}
           prerelease: ${{ steps.rel.outputs.prerelease }}
-          generate_release_notes: true
+          generate_release_notes: true   # 自动生成变更日志（基于 commit）
           files: assets/*
