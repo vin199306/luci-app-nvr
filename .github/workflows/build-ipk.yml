@@ -70,8 +70,12 @@ jobs:
       - name: Compile Package
         run: |
           cd sdk_env
-          ./scripts/feeds update -a > /dev/null 2>&1
-          ./scripts/feeds install luci-base > /dev/null 2>&1 || true
+          # 显示 feeds 源配置，便于诊断
+          echo "==== feeds.conf ===="
+          cat feeds.conf 2>/dev/null || cat feeds.conf.default 2>/dev/null || echo "(无 feeds.conf)"
+          # 更新并安装 luci 依赖（不吞掉输出，便于诊断）
+          ./scripts/feeds update -a
+          ./scripts/feeds install luci-base luci-compat
           echo "CONFIG_PACKAGE_luci-app-nvr=m" >> .config
           make defconfig
           make package/luci-app-nvr/compile V=s -j$(nproc)
