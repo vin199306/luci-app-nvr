@@ -70,7 +70,6 @@ jobs:
       - name: Compile Package
         run: |
           cd sdk_env
-          # 仅安装 luci 依赖，跳过全量 feeds install 以加速
           ./scripts/feeds update -a > /dev/null 2>&1
           ./scripts/feeds install luci-base > /dev/null 2>&1 || true
           echo "CONFIG_PACKAGE_luci-app-nvr=m" >> .config
@@ -80,8 +79,16 @@ jobs:
       - name: Collect package
         run: |
           mkdir -p pkg-out
-          find sdk_env/bin/ -name "*.${PKG_TYPE}" -type f \
-            -exec cp {} pkg-out/luci-app-nvr-${VERSION}-${ARCH}.${PKG_TYPE} \;
+          echo "==== 所有 ipk 产物 ===="
+          find sdk_env/bin/ -name "*.ipk" -type f -exec ls -lh {} \;
+          # 只取主包（luci-app-nvr_*），排除 i18n 语言包，避免小语言包覆盖主包
+          MAIN_IPK=$(find sdk_env/bin/ -name "luci-app-nvr_*.ipk" -not -name "luci-i18n-*" -type f | head -1)
+          if [ -z "$MAIN_IPK" ]; then
+            echo "错误：未找到主包 ipk"
+            exit 1
+          fi
+          echo "主包: $MAIN_IPK"
+          cp "$MAIN_IPK" pkg-out/luci-app-nvr-${VERSION}-${ARCH}.${PKG_TYPE}
           echo "==== 最终产物 ===="
           ls -lh pkg-out/
 
@@ -95,7 +102,6 @@ jobs:
   release:
     name: Publish to GitHub Release
     needs: build
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
